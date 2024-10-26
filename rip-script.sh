@@ -1,36 +1,58 @@
 #!/bin/bash
+################################################################################
+# Script to configure RIP routing on Quagga
+# Modified for Fabric by [Your Name]
+################################################################################
 
-# This script sets up RIP on a node using Quagga/FRRouting.
+# Define constants for configuration files
+ZEBRA="/etc/quagga/zebra.conf"
+RIPD="/etc/quagga/ripd.conf"
+RIPD_TEMP="/tmp/ripd"
 
-# Define the interface names
-INTERFACE1=$1
-INTERFACE2=$2
+# Check if the RIP configuration already exists
+if [[ ! -f $RIPD ]]; then
+    # Update package list and install Quagga if not installed
+    sudo apt-get update
+    sudo apt-get -y install quagga traceroute
 
-# Check if enough arguments are provided
-if [ "$#" -ne 2 ]; then
-    echo "Usage: $0 <interface1> <interface2>"
-    exit 1
+    # Get the IP addresses of the specified interfaces
+    ETH1IP=$(ip addr | grep inet | grep INTERFACE_NAME_1 | awk -F " " '{print $2}')
+    ETH2IP=$(ip addr | grep inet | grep INTERFACE_NAME_2 | awk -F " " '{print $2}')
+
+    # Create the Zebra configuration file
+    echo "interface lo" | sudo tee $ZEBRA
+    echo " description loopback" | sudo tee -a $ZEBRA
+    echo " ip address 127.0.0.1/8" | sudo tee -a $ZEBRA
+    echo " ip forwarding" | sudo tee -a $ZEBRA
+    echo "!" | sudo tee -a $ZEBRA
+    echo "interface INTERFACE_NAME_1" | sudo tee -a $ZEBRA
+    echo " description INTERFACE_NAME_1" | sudo tee -a $ZEBRA
+    echo " ip address $ETH1IP" | sudo tee -a $ZEBRA
+    echo " ip forwarding" | sudo tee -a $ZEBRA
+    echo "!" | sudo tee -a $ZEBRA
+    echo "interface INTERFACE_NAME_2" | sudo tee -a $ZEBRA
+    echo " description INTERFACE_NAME_2" | sudo tee -a $ZEBRA
+    echo " ip address $ETH2IP" | sudo tee -a $ZEBRA
+    echo " ip forwarding" | sudo tee -a $ZEBRA
+    echo "log file /var/log/quagga/zebra.log" | sudo tee -a $ZEBRA
+
+    # Create the RIP configuration file
+    echo "router rip" | sudo tee $RIPD_TEMP
+    echo " version 2" | sudo tee -a $RIPD_TEMP
+    echo " network INTERFACE_NAME_1" | sudo tee -a $RIPD_TEMP
+    echo " network INTERFACE_NAME_2" | sudo tee -a $RIPD_TEMP
+    echo " log file /var/log/quagga/ripd.log" | sudo tee -a $RIPD_TEMP
+    sudo mv $RIPD_TEMP $RIPD
+
+    # Adjust ownership and permissions for Quagga configuration files
+    sudo chown quagga:quagga $ZEBRA $RIPD
+    sudo chmod 640 $ZEBRA $RIPD
 fi
 
-# Update and install required packages
-sudo apt-get update
-sudo apt-get install -y frr frr-ripd
+# Start the necessary services
+sudo systemctl start zebra
+sudo systemctl start ripd
 
-# Enable RIP in FRRouting configuration
-sudo bash -c 'cat >> /etc/frr/frr.conf <<EOL
-router rip
- network $INTERFACE1
- network $INTERFACE2
-EOL
-'
-
-# Set ownership of the configuration file
-sudo chown frr:frr /etc/frr/frr.conf
-
-# Start the FRRouting services
-sudo systemctl start frr
-sudo systemctl enable frr
-
-# Show routing table
-echo "RIP configuration completed. Here is the current routing table:"
-vtysh -c "show ip route"
+# Check the status of the services
+sudo systemctl status zebra
+sudo systemctl status ripd
